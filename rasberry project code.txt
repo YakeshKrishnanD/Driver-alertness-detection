@@ -1,0 +1,102 @@
+import cv2
+import time
+
+# Replace the paths below with the absolute paths to your XML files
+face_cascade_path = "/home/rpi/Desktop/FINAL_YEAR_PRO/haarcascade_frontalface_default.xml"
+eye_cascade_path = "/home/rpi/Desktop/FINAL_YEAR_PRO/haarcascade_eye.xml"
+
+# Load the Haar cascade files for face and eye detection
+face_cascade = cv2.CascadeClassifier(face_cascade_path)
+eye_cascade = cv2.CascadeClassifier(eye_cascade_path)
+
+# Check if the cascades were loaded correctly
+if face_cascade.empty():
+    print("Error loading face cascade file. Check the path.")
+if eye_cascade.empty():
+    print("Error loading eye cascade file. Check the path.")
+
+# Initialize the webcam (0 for default webcam)
+cap = cv2.VideoCapture(0)
+
+# Parameters for drowsiness detection
+blink_threshold = 1  # seconds eyes remain closed
+distraction_threshold = 2  # seconds head turns away
+eye_close_start_time = None
+head_turn_start_time = None
+
+def trigger_alarm():
+    # Placeholder for buzzer or alert system
+    print("ALARM! Wake up or stop distractions!")
+
+def detect_eyes_and_face(frame):
+    global eye_close_start_time, head_turn_start_time
+    
+    # Convert frame to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Detect face
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    
+    # Loop over all detected faces
+    for (x, y, w, h) in faces:
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)  # Draw rectangle around face
+        
+        # Region of interest for eyes within the face rectangle
+        roi_gray = gray[y:y + h, x:x + w]
+        roi_color = frame[y:y + h, x:x + w]
+        
+        # Detect eyes within the face
+        eyes = eye_cascade.detectMultiScale(roi_gray)
+        
+        if len(eyes) == 0:
+            # If no eyes are detected, start tracking for drowsiness
+            if eye_close_start_time is None:
+                eye_close_start_time = time.time()
+            else:
+                # Check how long eyes have been closed
+                elapsed_time = time.time() - eye_close_start_time
+                if elapsed_time >= blink_threshold:
+                    cv2.putText(frame, "Drowsiness Detected!", (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                    trigger_alarm()  # Trigger the alarm
+        else:
+            # If eyes are detected, reset the drowsiness timer
+            eye_close_start_time = None
+            
+        # Head position (basic distraction detection by tracking face position)
+        frame_width = frame.shape[1]
+        if x < 50 or x + w > frame_width - 50:
+            if head_turn_start_time is None:
+                head_turn_start_time = time.time()
+            else:
+                elapsed_time = time.time() - head_turn_start_time
+                if elapsed_time >= distraction_threshold:
+                    cv2.putText(frame, "Distraction Detected!", (100, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                    trigger_alarm()  # Trigger the alarm
+        else:
+            head_turn_start_time = None
+    
+    return frame
+
+# Main loop
+try:
+    while True:
+        # Capture frame-by-frame
+        ret, frame = cap.read()
+        
+        if not ret:
+            print("Failed to grab frame")
+            break
+        
+        # Detect eyes and face
+        frame = detect_eyes_and_face(frame)
+        
+        # Display the resulting frame
+        cv2.imshow('Driver Alertness Detection', frame)
+        
+        # Press 'q' to exit
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+finally:
+    # Release the capture and close windows
+    cap.release()
+    cv2.destroyAllWindows()
